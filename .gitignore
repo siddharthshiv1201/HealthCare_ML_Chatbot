@@ -1,0 +1,25 @@
+# Virtual env
+venv/
+venv310/
+
+# Cache
+__pycache__/
+
+# VS Code
+.vscode/
+
+# 🔥 Model & Data (IMPORTANT)
+model/
+data/
+results/
+bert_results/
+
+# 🔥 Large / unwanted files
+*.pkl
+*.csv
+*.png
+*.h5
+
+# 🔐 Secrets
+hf_login.py
+.env
