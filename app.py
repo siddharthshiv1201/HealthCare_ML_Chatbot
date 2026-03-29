@@ -7,25 +7,41 @@ from huggingface_hub import login, hf_hub_download
 
 app = FastAPI()
 
-# 🔐 Safe login (only if token exists)
+# 🔐 Safe login
 hf_token = os.getenv("HF_TOKEN")
 if hf_token:
     login(hf_token)
 
-# 🔥 Hugging Face model
+# 🔥 Model name
 model_name = "siddharth-1201/healthcare-chatbot-model"
 
-# 🔹 Load model
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-bert_model = AutoModelForSequenceClassification.from_pretrained(model_name)
+# 🔹 Global variables (lazy loading)
+tokenizer = None
+bert_model = None
+label_encoder = None
 
-# 🔥 Download label_encoder from HF
-label_path = hf_hub_download(
-    repo_id=model_name,
-    filename="label_encoder.pkl"
-)
+# 🔧 Reduce CPU usage
+torch.set_num_threads(1)
 
-label_encoder = pickle.load(open(label_path, "rb"))
+def load_model():
+    global tokenizer, bert_model, label_encoder
+
+    if tokenizer is None:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    if bert_model is None:
+        bert_model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16,        # 🔥 RAM reduce
+            low_cpu_mem_usage=True            # 🔥 RAM reduce
+        )
+
+    if label_encoder is None:
+        label_path = hf_hub_download(
+            repo_id=model_name,
+            filename="label_encoder.pkl"
+        )
+        label_encoder = pickle.load(open(label_path, "rb"))
 
 @app.get("/")
 def home():
@@ -37,6 +53,9 @@ def predict(data: dict):
 
     if not text:
         return {"error": "No message provided"}
+
+    # 🔥 Load model only when needed
+    load_model()
 
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
 
