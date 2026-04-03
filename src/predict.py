@@ -5,14 +5,13 @@ import pandas as pd
 from normalizer import normalize_text
 from transformers import BertTokenizer, BertForSequenceClassification
 from sklearn.preprocessing import LabelEncoder
+from rapidfuzz import fuzz
 
 
 # =========================
 # LOAD PRECAUTIONS DATASET
 # =========================
 precautions_df = pd.read_csv("data/precautions.csv")
-
-# Clean precautions disease column once
 precautions_df['Disease'] = precautions_df['Disease'].str.strip().str.lower()
 
 
@@ -32,8 +31,6 @@ def show_precautions(disease):
 # LOAD BERT MODEL
 # =========================
 df = pd.read_csv("data/nlp_training_dataset.csv")
-
-# Clean labels before encoder
 df['disease'] = df['disease'].str.strip().str.lower()
 
 le = LabelEncoder()
@@ -50,6 +47,54 @@ bert_model.eval()
 # =========================
 svm_model = joblib.load("model/svm_model.pkl")
 all_symptoms = joblib.load("model/symptoms_list.pkl")
+
+
+# =========================
+# INPUT VALIDATION (FUZZY)
+# =========================
+def is_valid_input(text):
+    text = normalize_text(text)
+
+    match_count = 0
+
+    for symptom in all_symptoms:
+        score = fuzz.partial_ratio(symptom, text)
+
+        if score > 80:
+            match_count += 1
+
+        if match_count >= 1:
+            return True
+
+    return False
+
+
+# =========================
+# AUTO CORRECTION (NEW 🔥)
+# =========================
+def correct_input(text):
+    text = normalize_text(text)
+    words = text.split()
+
+    corrected_words = []
+
+    for word in words:
+        best_match = word
+        best_score = 0
+
+        for symptom in all_symptoms:
+            score = fuzz.ratio(word, symptom)
+
+            if score > best_score:
+                best_score = score
+                best_match = symptom
+
+        if best_score > 80:
+            corrected_words.append(best_match)
+        else:
+            corrected_words.append(word)
+
+    return " ".join(corrected_words)
 
 
 # =========================
@@ -112,22 +157,44 @@ while True:
     if user_input.lower() == "exit":
         break
 
-    # Structured input → SVM
+    # =====================
+    # STRUCTURED INPUT → SVM
+    # =====================
     if "," in user_input:
+
+        if not is_valid_input(user_input):
+            print("\nPlease enter valid medical symptoms.")
+            continue
+
         prediction = predict_svm(user_input)
 
         print("\nPredicted Disease (SVM):", prediction.title())
         show_precautions(prediction)
 
-    # Sentence input → BERT
+    # =====================
+    # SENTENCE INPUT → BERT
+    # =====================
     else:
-        predictions = predict_bert(user_input)
+
+        if not is_valid_input(user_input):
+            print("\nPlease enter valid medical symptoms (e.g., fever, headache, rash).")
+            continue
+
+        # 🔥 AUTO CORRECTION
+        corrected_text = correct_input(user_input)
+
+        print("\nInterpreted symptoms:", corrected_text)
+
+        predictions = predict_bert(corrected_text)
+
+        if predictions[0][1] < 40:
+            print("\nSymptoms not sufficient or unclear. Please provide more specific symptoms.")
+            continue
 
         print("\nTop Possible Diseases:")
         for disease, conf in predictions:
             print(f"{disease.title()}  →  {conf:.2f}%")
 
-        # Show precautions for most probable disease
         show_precautions(predictions[0][0])
 
         print("\nNote: Please provide key symptoms for more accurate prediction.")
